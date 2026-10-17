@@ -1,0 +1,8 @@
+﻿# Local backups of earlier revisions
+.bak-*
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+node_modules/
+*.log

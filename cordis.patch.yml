@@ -1,0 +1,43 @@
+# dsh-web-search-free bundle patch.
+#
+# Pins the ctx.web search provider to the keyless `free-scrape` backend and mounts it.
+# `web-fetch-http` stays the fetch provider, so `web_fetch` is unchanged; only `web_search`
+# stops billing the DeepSeek wallet.
+#
+# A patch replaces the targeted row's whole `config`, so the `web` row below restates both
+# keys it owns. This file is only applied when the package is listed in
+# `dsh.profile.bundles`; the desktop profile mounts the same rows from
+# `~/.dsh/profiles/desktop/cordis.patch.yml` instead. Keep the two in sync.
+
+- id: web
+  config:
+    searchProvider: free-scrape
+    fetchProvider: http
+
+# The billed provider is switched off, not merely deselected: with it disabled, a stray
+# `searchProvider: deepseek-official` fails loudly (WEB_PROVIDER_CONFIGURED_MISSING) instead of
+# silently spending balance.
+- id: web-search-deepseek
+  disabled: true
+
+- insert:
+    - id: web-search-free
+      name: dsh-web-search-free
+      config:
+        # Query order only breaks ranking ties; engines run concurrently.
+        engines:
+          - shenma
+          - bing
+        maxResults: 8
+        maxPerSite: 3
+        # `auto` gives each engine the lane that works: Shenma is client-rendered and goes
+        # through Edge (~4-5 s), Bing answers in HTML and is fetched over HTTP (~0.3 s).
+        transport: auto
+        timeoutMs: 15000
+        browserTimeoutMs: 30000
+        # Skip an engine for ten minutes after it answers with an anti-bot page.
+        cooldownMs: 600000
+        # Flag a result set that misses the query's distinguishing terms.
+        minAnchorCoverage: 0.75
+        # Explicit Edge path; empty auto-detects msedge.exe / chrome.exe.
+        browserPath: ''
