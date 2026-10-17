@@ -1,7 +1,7 @@
 ﻿{
-    "name":  "dsh-web-search-free",
+    "name":  "dsh-web-search-edge",
     "version":  "0.4.0",
-    "description":  "Keyless, zero-cost web_search for DeepSeek Harness: renders Shenma with your local Edge browser over CDP and reads Bing over HTTP 鈥?no API key, no model call, no bill.",
+    "description":  "Keyless, zero-cost web_search for DeepSeek Harness: renders Shenma with your local Edge browser over CDP and reads Bing over HTTP. No API key, no model call, no bill.",
     "type":  "module",
     "engines":  {
                     "node":  "\u003e=20",
@@ -12,7 +12,7 @@
     "icon":  "./icon.png",
     "repository":  {
                        "type":  "git",
-                       "url":  "git+https://github.com/ztc1522021381/dsh-web-search-free.git"
+                       "url":  "git+https://github.com/ztc1522021381/dsh-web-search-edge.git"
                    },
     "keywords":  [
                      "dsh",

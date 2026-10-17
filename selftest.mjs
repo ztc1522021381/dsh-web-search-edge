@@ -1,6 +1,6 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
- * dsh-web-search-free self-test.
+ * dsh-web-search-edge self-test.
  *
  * Run `node selftest.mjs` from the package directory to check every layer this plugin
  * depends on, in the order a real search touches them. Each step prints PASS or FAIL with
@@ -28,7 +28,7 @@ function step(name, ok, detail) {
 }
 
 async function main() {
-  console.log('\ndsh-web-search-free self-test\n')
+  console.log('\ndsh-web-search-edge self-test\n')
 
   // ── package ──────────────────────────────────────────────────────────────
   console.log('package')

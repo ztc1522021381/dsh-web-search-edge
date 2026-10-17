@@ -1,4 +1,4 @@
-# dsh-web-search-free bundle patch.
+﻿# dsh-web-search-edge bundle patch.
 #
 # Pins the ctx.web search provider to the keyless `free-scrape` backend and mounts it.
 # `web-fetch-http` stays the fetch provider, so `web_fetch` is unchanged; only `web_search`
@@ -22,7 +22,7 @@
 
 - insert:
     - id: web-search-free
-      name: dsh-web-search-free
+      name: dsh-web-search-edge
       config:
         # Query order only breaks ranking ties; engines run concurrently.
         engines:

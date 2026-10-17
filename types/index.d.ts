@@ -1,5 +1,5 @@
-/**
- * Type declarations for dsh-web-search-free.
+﻿/**
+ * Type declarations for dsh-web-search-edge.
  *
  * The plugin registers one search provider (`free-scrape`) into the `ctx.web` seam. Host
  * code never imports these types directly — they exist so tooling and consumers can see

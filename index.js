@@ -1,5 +1,5 @@
-/**
- * dsh-web-search-free — a keyless, zero-cost `web_search` backend for DeepSeek Harness.
+﻿/**
+ * dsh-web-search-edge — a keyless, zero-cost `web_search` backend for DeepSeek Harness.
  *
  * Why this exists: the shipped `deepseek-official` search provider implements search as a
  * full auxiliary Messages call carrying the server-side `web_search_20250305` tool, because
@@ -27,7 +27,7 @@
  *   bing   (bing.com) — Always reachable. Strong on technical/English, but it geolocates by
  *                       source IP, so local Chinese queries can drift to another city.
  *
- * @module dsh-web-search-free
+ * @module dsh-web-search-edge
  */
 
 import z from '@deepseek-ai/schemastery'
@@ -39,7 +39,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 /** Cordis plugin name used by loader diagnostics. */
-const name = 'web-search-free'
+const name = 'web-search-edge'
 
 /** The web seam this provider registers into. */
 const inject = ['web']

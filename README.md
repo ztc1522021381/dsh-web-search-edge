@@ -1,4 +1,4 @@
-# dsh-web-search-free
+﻿# dsh-web-search-edge
 
 零密钥、零费用的 `web_search` 后端，给 DeepSeek Harness 用。抓取走**本机 Edge 浏览器**。
 
@@ -106,7 +106,7 @@ profile 的 `cordis.patch.yml`：
   disabled: true          # 计费的那条提供方直接关掉，写错配置也只会报错不会扣钱
 - insert:
     - id: web-search-free
-      name: dsh-web-search-free
+      name: dsh-web-search-edge
       config:
         engines: [shenma, bing]
         transport: auto
