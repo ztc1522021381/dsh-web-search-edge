@@ -32,7 +32,7 @@
 
 import z from '@deepseek-ai/schemastery'
 import { spawn } from 'node:child_process'
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { request as httpRequest } from 'node:http'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
