@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * dsh-web-search-edge self-test.
  *
@@ -41,6 +41,16 @@ async function main() {
   step('icon exists', existsSync(join(here, 'icon.png')))
   step('LICENSE exists', existsSync(join(here, 'LICENSE')))
 
+  // Every path in `files` must exist, or `npm pack` ships a broken tarball.
+  const missing = (pkg.files ?? []).filter((rel) => !existsSync(join(here, rel)))
+  step('every file in `files` exists', missing.length === 0, missing.length === 0 ? `${pkg.files.length} files` : `missing: ${missing.join(', ')}`)
+
+  // The kernel compatibility gate reads `engines.dsh` alone when it is present, so this range
+  // is what decides whether the profile mounts the plugin at all.
+  step('declares a dsh engine range', typeof pkg.engines?.dsh === 'string', `engines.dsh = ${pkg.engines?.dsh}`)
+  step('declares the web peer', typeof pkg.peerDependencies?.['@deepseek-ai/dsh-web'] === 'string',
+    `@deepseek-ai/dsh-web = ${pkg.peerDependencies?.['@deepseek-ai/dsh-web']}`)
+
   // ── module ───────────────────────────────────────────────────────────────
   console.log('\nmodule')
 
@@ -51,12 +61,28 @@ async function main() {
   step('exports the browser pool', typeof mod.EdgeBrowserPool === 'function')
 
   const defaults = mod.Config({})
-  step('config defaults are sane',
-    Array.isArray(defaults.engines) && defaults.engines.length > 0
-      && defaults.maxResults >= 1 && defaults.maxResults <= 20,
-    `engines=${defaults.engines.join(',')} maxResults=${defaults.maxResults} transport=${defaults.transport}`)
+  // Kernel contract from dsh 0.2.1-rc.1: every Config field is `.volatile()`, so a resolved
+  // config yields live accessors and the plugin must unwrap them through get().
+  const volatileFields = ['engines', 'maxResults', 'maxPerSite', 'timeoutMs', 'cooldownMs',
+    'minAnchorCoverage', 'transport', 'browserPath', 'browserTimeoutMs', 'debugDomDir']
+  const nonVolatile = volatileFields.filter((key) => typeof defaults[key]?.get !== 'function')
+  step('every Config field is volatile', nonVolatile.length === 0,
+    nonVolatile.length === 0 ? `${volatileFields.length} fields` : `not volatile: ${nonVolatile.join(',')}`)
 
-  for (const engine of defaults.engines) {
+  const resolved = mod.readOptions(defaults)
+  step('config defaults are sane',
+    Array.isArray(resolved.engines) && resolved.engines.length > 0
+      && resolved.maxResults >= 1 && resolved.maxResults <= 20,
+    `engines=${resolved.engines.join(',')} maxResults=${resolved.maxResults} transport=${resolved.transport}`)
+
+  // The unwrapper must read through get(), not return the accessor object.
+  const override = mod.readOptions(mod.Config({ maxResults: 5, transport: 'http', engines: ['bing'] }))
+  step('readOptions unwraps overrides',
+    override.maxResults === 5 && override.transport === 'http'
+      && override.engines.length === 1 && override.engines[0] === 'bing',
+    `maxResults=${override.maxResults} transport=${override.transport} engines=${override.engines.join(',')}`)
+
+  for (const engine of resolved.engines) {
     step(`engine "${engine}" is registered`, mod.ENGINES.has(engine) || mod.ENGINE_ALIASES.has(engine))
   }
 
@@ -116,19 +142,8 @@ async function main() {
   // ── end to end ───────────────────────────────────────────────────────────
   console.log('\nend to end (live)')
 
-  const config = mod.Config({})
-  const provider = new mod.FreeSearchProvider(() => ({
-    engines: config.engines,
-    maxResults: config.maxResults,
-    maxPerSite: config.maxPerSite,
-    timeoutMs: config.timeoutMs,
-    cooldownMs: config.cooldownMs,
-    minAnchorCoverage: config.minAnchorCoverage,
-    transport: config.transport,
-    browserPath: config.browserPath,
-    browserTimeoutMs: config.browserTimeoutMs,
-    debugDomDir: '',
-  }))
+  const config = mod.readOptions(mod.Config({}))
+  const provider = new mod.FreeSearchProvider(() => config)
 
   for (const query of ['三菱 GX Works2', '上海 天气']) {
     const t0 = Date.now()

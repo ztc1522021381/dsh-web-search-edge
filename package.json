@@ -1,11 +1,11 @@
-﻿{
+{
     "name":  "dsh-web-search-edge",
-    "version":  "0.4.0",
-    "description":  "Keyless, zero-cost web_search for DeepSeek Harness: renders Shenma with your local Edge browser over CDP and reads Bing over HTTP. No API key, no model call, no bill.",
+    "version":  "0.5.0",
+    "description":  "Keyless, zero-cost web_search for DeepSeek Harness with a browser you choose: render Shenma through any Chromium browser over CDP and read Bing over HTTP. No API key, no model call, no bill.",
     "type":  "module",
     "engines":  {
                     "node":  "\u003e=20",
-                    "dsh":  "\u003e=0.1.5-rc.1"
+                    "dsh":  "\u003e=0.2.1-rc.1"
                 },
     "main":  "index.js",
     "types":  "./types/index.d.ts",
@@ -43,7 +43,6 @@
                   "cordis.patch.yml",
                   "LICENSE",
                   "README.md",
-                  "README.en.md",
                   "selftest.mjs"
               ],
     "dsh":  {
@@ -57,8 +56,8 @@
                     "test:offline":  "node selftest.mjs --offline"
                 },
     "peerDependencies":  {
-                             "@deepseek-ai/cordis":  "\u003e=4.0.1",
-                             "@deepseek-ai/dsh-web":  "\u003e=0.1.5-rc.1"
+                             "@deepseek-ai/cordis":  "\u003e=4.0.5",
+                             "@deepseek-ai/dsh-web":  "\u003e=0.2.1-rc.1"
                          },
     "peerDependenciesMeta":  {
                                  "@deepseek-ai/dsh-web":  {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-web-search-edge — a keyless, zero-cost `web_search` backend for DeepSeek Harness.
  *
  * Why this exists: the shipped `deepseek-official` search provider implements search as a
@@ -92,22 +92,35 @@ const BLOCK_MARKERS = [
   /id="captcha"/i,
 ]
 
+/** Engines queried when the config names none. */
+const DEFAULT_ENGINES = ['shenma', 'bing']
+
+/**
+ * Every field is `.volatile()`. The kernel commits a volatile-only config change into the running
+ * fiber without remounting the plugin (dsh >= 0.2.1-rc.1), so editing these values in the settings
+ * page takes effect on the next search — no restart. A volatile field resolves to a live accessor
+ * (`config.engines.get()`), never to a plain value, so `readOptions` unwraps each one.
+ *
+ * The kernel rejects a volatile field nested inside another volatile field, or on an array *item*
+ * (`z.array(z.string().volatile())` throws at schema build). Each field below therefore sits at a
+ * fixed object path and the array/union is marked as a whole.
+ */
 const Config = z.object({
   /** Engines queried concurrently. Known ids: shenma, bing. */
-  engines: z.array(z.string()).default(['shenma', 'bing']),
-  maxResults: z.number().step(1).min(1).max(20).default(DEFAULT_MAX_RESULTS),
+  engines: z.array(z.string()).default(DEFAULT_ENGINES).volatile(),
+  maxResults: z.number().step(1).min(1).max(20).default(DEFAULT_MAX_RESULTS).volatile(),
   /** Cap on how many sources one site may contribute, so one site cannot fill the result set. */
-  maxPerSite: z.number().step(1).min(1).max(20).default(DEFAULT_MAX_PER_SITE),
+  maxPerSite: z.number().step(1).min(1).max(20).default(DEFAULT_MAX_PER_SITE).volatile(),
   /** Per-request HTTP budget. */
-  timeoutMs: z.number().step(1).min(1000).default(DEFAULT_TIMEOUT_MS),
+  timeoutMs: z.number().step(1).min(1000).default(DEFAULT_TIMEOUT_MS).volatile(),
   /** How long an engine is skipped after it answers with an anti-bot page. */
-  cooldownMs: z.number().step(1).min(0).default(DEFAULT_COOLDOWN_MS),
+  cooldownMs: z.number().step(1).min(0).default(DEFAULT_COOLDOWN_MS).volatile(),
   /**
    * Minimum share (0–1) of the query's distinctive terms the returned sources must cover.
    * Guards against a geolocated engine answering a different city or product with confident
    * links. `0` disables the check.
    */
-  minAnchorCoverage: z.number().min(0).max(1).default(DEFAULT_MIN_ANCHOR_COVERAGE),
+  minAnchorCoverage: z.number().min(0).max(1).default(DEFAULT_MIN_ANCHOR_COVERAGE).volatile(),
   /**
    * Which lane to use per engine:
    *   `auto`    — each engine takes the lane that works for it: Shenma is client-rendered, so it
@@ -117,12 +130,15 @@ const Config = z.object({
    *   `http`    — force plain fetch. Fastest; an engine that renders its results will report
    *               "no parseable results" instead of silently returning nothing.
    */
-  transport: z.union([z.const('auto'), z.const('browser'), z.const('http')]).default('auto'),
+  transport: z
+    .union([z.const('auto'), z.const('browser'), z.const('http')])
+    .default('auto')
+    .volatile(),
   /** Explicit Edge/Chromium executable; empty means auto-detect. */
-  browserPath: z.string().default(''),
-  browserTimeoutMs: z.number().step(1).min(2000).default(DEFAULT_BROWSER_TIMEOUT_MS),
+  browserPath: z.string().default('').volatile(),
+  browserTimeoutMs: z.number().step(1).min(2000).default(DEFAULT_BROWSER_TIMEOUT_MS).volatile(),
   /** Keep each rendered page's DOM under this path for debugging. Empty disables. */
-  debugDomDir: z.string().default(''),
+  debugDomDir: z.string().default('').volatile(),
 })
 
 /* ------------------------------------------------------------------ */
@@ -1671,22 +1687,52 @@ function normalizeCoverage(value) {
   return value
 }
 
+/**
+ * Unwrap one resolved config field.
+ *
+ * Since dsh 0.2.1-rc.1 every field in this plugin's `Config` is volatile, so the kernel hands
+ * `apply` live accessors: `config.maxResults` is `{ get() }`, not a number. Reading the field
+ * directly would make every `typeof` guard below see an object and silently fall back to the
+ * default, discarding the user's setting. Volatile accessors are read through `get()`; a plain
+ * value (an older kernel, or a test calling `Config({})` on a non-volatile schema) is used as-is.
+ */
+function readField(config, key) {
+  const raw = config?.[key]
+  if (raw !== null && typeof raw === 'object' && typeof raw.get === 'function') return raw.get()
+  return raw
+}
+
 function readOptions(config) {
+  const configured = readField(config, 'engines')
   const engines =
-    Array.isArray(config.engines) && config.engines.length > 0 ? config.engines : Config({}).engines
+    Array.isArray(configured) && configured.length > 0 ? configured : DEFAULT_ENGINES
+  const transport = readField(config, 'transport')
   return {
     engines,
-    maxResults: typeof config.maxResults === 'number' ? config.maxResults : DEFAULT_MAX_RESULTS,
-    maxPerSite: typeof config.maxPerSite === 'number' ? config.maxPerSite : DEFAULT_MAX_PER_SITE,
-    timeoutMs: typeof config.timeoutMs === 'number' ? config.timeoutMs : DEFAULT_TIMEOUT_MS,
-    cooldownMs: typeof config.cooldownMs === 'number' ? config.cooldownMs : DEFAULT_COOLDOWN_MS,
-    minAnchorCoverage: normalizeCoverage(config.minAnchorCoverage),
-    transport:
-      config.transport === 'http' || config.transport === 'browser' ? config.transport : 'auto',
-    browserPath: typeof config.browserPath === 'string' ? config.browserPath : '',
+    maxResults:
+      typeof readField(config, 'maxResults') === 'number'
+        ? readField(config, 'maxResults')
+        : DEFAULT_MAX_RESULTS,
+    maxPerSite:
+      typeof readField(config, 'maxPerSite') === 'number'
+        ? readField(config, 'maxPerSite')
+        : DEFAULT_MAX_PER_SITE,
+    timeoutMs:
+      typeof readField(config, 'timeoutMs') === 'number'
+        ? readField(config, 'timeoutMs')
+        : DEFAULT_TIMEOUT_MS,
+    cooldownMs:
+      typeof readField(config, 'cooldownMs') === 'number'
+        ? readField(config, 'cooldownMs')
+        : DEFAULT_COOLDOWN_MS,
+    minAnchorCoverage: normalizeCoverage(readField(config, 'minAnchorCoverage')),
+    transport: transport === 'http' || transport === 'browser' ? transport : 'auto',
+    browserPath: typeof readField(config, 'browserPath') === 'string' ? readField(config, 'browserPath') : '',
     browserTimeoutMs:
-      typeof config.browserTimeoutMs === 'number' ? config.browserTimeoutMs : DEFAULT_BROWSER_TIMEOUT_MS,
-    debugDomDir: typeof config.debugDomDir === 'string' ? config.debugDomDir : '',
+      typeof readField(config, 'browserTimeoutMs') === 'number'
+        ? readField(config, 'browserTimeoutMs')
+        : DEFAULT_BROWSER_TIMEOUT_MS,
+    debugDomDir: typeof readField(config, 'debugDomDir') === 'string' ? readField(config, 'debugDomDir') : '',
   }
 }
 
@@ -1710,6 +1756,7 @@ export {
   Config,
   DEFAULT_BROWSER_TIMEOUT_MS,
   DEFAULT_COOLDOWN_MS,
+  DEFAULT_ENGINES,
   DEFAULT_MAX_PER_SITE,
   DEFAULT_MAX_RESULTS,
   DEFAULT_MIN_ANCHOR_COVERAGE,
@@ -1743,6 +1790,8 @@ export {
   poolFor,
   queryTerms,
   rankSources,
+  readField,
+  readOptions,
   readableFallbackTitle,
   relevanceScore,
   renderHtmlWithBrowser,
