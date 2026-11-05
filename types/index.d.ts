@@ -37,6 +37,13 @@ export interface WebSearchProvider {
   readonly id: string
   available(): boolean
   search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
+  /**
+   * Optional since dsh 0.2.2: the seam asks the selected provider whether it can authenticate a
+   * search made for a model request on this chat route, and hides `web_search` while it answers
+   * false. A provider without this method counts as ready. This plugin reads local pages and has
+   * no credential, so a `ready()` would answer true unconditionally.
+   */
+  ready?(llmProvider?: string): boolean | Promise<boolean>
 }
 
 /** A long-lived headless Edge driven over the DevTools protocol. */

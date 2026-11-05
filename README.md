@@ -2,7 +2,8 @@
 
 零密钥、零费用的 `web_search` 后端，给 DeepSeek Harness 用。抓取走**本机浏览器**——**用哪个浏览器你说了算**。
 
-**内核要求：dsh `>=0.2.1-rc.1`**（`ctx.web` 的 Config 从这一版起支持 `.volatile()`）。
+**内核要求：dsh `>=0.2.1-rc.1 <0.3.0`**（`ctx.web` 的 Config 从 `0.2.1-rc.1` 起支持 `.volatile()`；
+已实测适配 `0.2.2-rc.1`）。
 
 ## 浏览器可随意设置
 
@@ -39,6 +40,34 @@
 
 `package.json` 的 `engines.dsh` 是内核兼容性闸门的**唯一依据**：只要声明了它，`peerDependencies`
 就不参与判定，范围不满足时 profile 启动会直接拒绝挂载该插件。
+
+### 0.2.2 内核差异（0.5.1 起已适配）
+
+0.2.2-rc.1 对 `ctx.web` 做了两处扩展，本插件都不需要改动注册方式：
+
+- 新增 `WebRuntime.searchReady()` / `fetchReady()`：`dsh-tool-web` 用它决定要不要**向模型声明**
+  `web_search`。它只问被选中提供方的 `ready()`，**没有 `ready()` 的实现一律视为就绪**。本插件
+  读本地渲染结果、不持任何凭据，因此不实现 `ready()` 即为"始终就绪"。
+- `WebSearchProvider` 仍是 `{ id, available(), search(request, signal) }`，`Config` 的 volatile
+  语义不变，`registerSearchProvider` 的返回值仍是幂等 disposer。
+
+### 宿主是 Electron 时的浏览器通道（0.5.1 修复）
+
+DSH 桌面端自己是 Electron 进程，被它拉起的 Edge 会继承一组只对 Electron 有意义的变量：
+
+| 变量 | 为什么要剥掉 |
+|---|---|
+| `ELECTRON_RUN_AS_NODE` | 让打包后的 Electron 二进制退化成裸 Node 解释器 |
+| `CHROME_CRASHPAD_PIPE_NAME` / `CHROME_DESKTOP` | 把子 Chromium 指向父进程的崩溃处理器 |
+
+真实 Edge 继承这些后可能在写出 `DevToolsActivePort` 之前就**静默退出（code 0，stderr 为空）**，
+表现为每次搜索都只报 `browser exited during start-up (code 0)`。现在的启动逻辑：
+
+1. 第一次沿用继承环境（宿主是纯 Node 时这条路径本来就正常）；
+2. 失败则用剥掉上述变量的环境**换一个全新 profile 目录重试一次**；
+3. 启动失败的错误里附带子进程 stderr 尾部，不再是光秃秃的 `code 0`；
+4. browser 通道仍失败时，`auto` 模式下该引擎**自动回退到 HTTP**；只有真正拿到反爬页
+   （`BlockedError`）才不回退——同一个验证码端点再问一遍没有意义。
 
 ## 它解决的是什么坑
 

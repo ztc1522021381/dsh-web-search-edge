@@ -1,5 +1,7 @@
-﻿# Local backups of earlier revisions
+# Local backups of earlier revisions
 .bak-*
+*.bak
+*.bak-*
 
 # Editor / OS noise
 .DS_Store

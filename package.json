@@ -1,11 +1,11 @@
 {
     "name":  "dsh-web-search-edge",
-    "version":  "0.5.0",
+    "version":  "0.5.1",
     "description":  "Keyless, zero-cost web_search for DeepSeek Harness with a browser you choose: render Shenma through any Chromium browser over CDP and read Bing over HTTP. No API key, no model call, no bill.",
     "type":  "module",
     "engines":  {
                     "node":  "\u003e=20",
-                    "dsh":  "\u003e=0.2.1-rc.1"
+                    "dsh":  "\u003e=0.2.1-rc.1 \u003c0.3.0"
                 },
     "main":  "index.js",
     "types":  "./types/index.d.ts",

@@ -709,6 +709,33 @@ function resolveBrowser(explicitPath) {
 }
 
 /**
+ * Variables that must not reach a launched Chromium when the host is itself an Electron app.
+ *
+ * `ELECTRON_RUN_AS_NODE` makes a packaged Electron binary behave as a plain Node interpreter,
+ * and Electron's own crash handler publishes `CHROME_CRASHPAD_PIPE_NAME` (plus `CHROME_DESKTOP`)
+ * for child Chromium processes to attach to. A real Edge inheriting either can exit before it
+ * ever writes `DevToolsActivePort` — the "exited during start-up (code 0)" case with no stderr.
+ * Both are dropped; everything else (PATH, proxy settings, locale) is passed through untouched.
+ */
+const HOST_RUNTIME_ENV_KEYS = [
+  'ELECTRON_RUN_AS_NODE',
+  'ELECTRON_NO_ATTACH_CONSOLE',
+  'ELECTRON_ENABLE_LOGGING',
+  'ELECTRON_ENABLE_STACK_DUMPING',
+  'CHROME_CRASHPAD_PIPE_NAME',
+  'CHROME_DESKTOP',
+  'GOOGLE_API_KEY',
+  'GOOGLE_DEFAULT_CLIENT_ID',
+  'GOOGLE_DEFAULT_CLIENT_SECRET',
+]
+
+function sanitizedBrowserEnv() {
+  const env = { ...process.env }
+  for (const key of HOST_RUNTIME_ENV_KEYS) delete env[key]
+  return env
+}
+
+/**
  * Kill a process and everything it spawned.
  *
  * `child.kill()` terminates only the direct child. A headless browser is a process *tree* —
@@ -1014,7 +1041,32 @@ class EdgeBrowserPool {
   }
 
   async #launch() {
-    this.#profileDir = mkdtempSync(join(tmpdir(), 'dsh-search-'))
+    // A retry must not reuse the profile directory of the failed attempt: the exit handler
+    // clears it, and a half-written profile makes even a healthy browser refuse to start.
+    const attempt = async (env) => {
+      const profileDir = mkdtempSync(join(tmpdir(), 'dsh-search-'))
+      this.#profileDir = profileDir
+      return await this.#spawnAndWait(profileDir, env)
+    }
+    let lastError
+    try {
+      return await attempt(undefined)
+    } catch (error) {
+      lastError = error
+    }
+    try {
+      return await attempt(sanitizedBrowserEnv())
+    } catch (error) {
+      throw new Error(`${lastError.message}; retried with a sanitized environment: ${error.message}`)
+    }
+  }
+
+  /**
+   * Spawn the browser and wait for its DevTools port.
+   * @param profileDir - throwaway profile directory for this attempt.
+   * @param env - environment override; `undefined` inherits the host environment.
+   */
+  async #spawnAndWait(profileDir, env) {
     const args = [
       '--headless=new',
       '--disable-gpu',
@@ -1033,31 +1085,59 @@ class EdgeBrowserPool {
       // an ordinary one; without them the engine answers every query with a block.
       '--disable-blink-features=AutomationControlled',
       `--user-agent=${DESKTOP_UA}`,
-      `--user-data-dir=${this.#profileDir}`,
+      `--user-data-dir=${profileDir}`,
       // 0 makes the browser pick a free port and write it to DevToolsActivePort.
       '--remote-debugging-port=0',
       'about:blank',
     ]
     const child = spawn(this.#browserPath, args, {
-      stdio: ['ignore', 'ignore', 'ignore'],
+      stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
+      ...(env === undefined ? {} : { env }),
     })
+    // A browser that exits during start-up used to surface as a bare "code 0", which says
+    // nothing about why. Chromium prints the reason on stderr (policy refusal, an inherited
+    // crashpad pipe, a locked user-data-dir), so keep the tail and put it in the error.
+    const stderrTail = []
+    let stderrBytes = 0
+    child.stderr?.on('data', (chunk) => {
+      stderrBytes += chunk.length
+      stderrTail.push(String(chunk))
+      if (stderrTail.length > 20) stderrTail.shift()
+    })
+    const stderrNote = () => {
+      const text = stderrTail.join('').replace(/\s+/g, ' ').trim()
+      return text.length === 0
+        ? ` (no stderr, ${stderrBytes} bytes)`
+        : `: ${text.slice(-600)}`
+    }
     child.on('exit', () => {
       // Whatever the reason, the next render must launch a fresh browser instead of writing
       // into a port that no longer answers.
       this.#port = undefined
       this.#starting = null
-      if (this.#profileDir !== undefined) {
-        sweepDirectory(this.#profileDir)
+      // Only this attempt's profile is ours to delete; a retry may already own a newer one.
+      if (this.#profileDir === profileDir) {
+        sweepDirectory(profileDir)
         this.#profileDir = undefined
       }
     })
 
-    const portFile = join(this.#profileDir, 'DevToolsActivePort')
+    const portFile = join(profileDir, 'DevToolsActivePort')
     const deadline = Date.now() + this.#launchTimeoutMs
     for (;;) {
       if (child.exitCode !== null) {
-        throw new Error(`browser exited during start-up (code ${child.exitCode})`)
+        // The browser process is gone but its renderer, GPU and crashpad children outlive it on
+        // Windows. Without this sweep every failed launch left a process tree behind: a host that
+        // retried on each search accumulated dozens of them.
+        await killProcessTree(child)
+        if (this.#profileDir === profileDir) {
+          sweepDirectory(profileDir)
+          this.#profileDir = undefined
+        }
+        throw new Error(
+          `browser exited during start-up (code ${child.exitCode})${stderrNote()}`,
+        )
       }
       if (existsSync(portFile)) {
         const first = readFileSync(portFile, 'utf8').trim().split('\n')[0]
@@ -1070,8 +1150,10 @@ class EdgeBrowserPool {
       }
       if (Date.now() > deadline) {
         await killProcessTree(child)
-        sweepDirectory(this.#profileDir)
-        this.#profileDir = undefined
+        if (this.#profileDir === profileDir) {
+          sweepDirectory(profileDir)
+          this.#profileDir = undefined
+        }
         throw new Error('browser did not open a debugging port in time')
       }
       await new Promise((resolve) => setTimeout(resolve, 200).unref?.())
@@ -1533,13 +1615,42 @@ class FreeSearchProvider {
         (current.transport === 'auto' && spec.prefer === 'browser' && browserPath !== undefined)
 
       if (wantsBrowser) {
-        const html = await render(url)
-        if (detectsBlock(html)) throw new BlockedError(`${spec.label} served an anti-bot page`)
-        const rows = spec.parse(html)
-        if (rows.length === 0) {
-          throw new Error(`${spec.label} rendered no parseable results (layout change)`)
+        try {
+          const html = await render(url)
+          if (detectsBlock(html)) throw new BlockedError(`${spec.label} served an anti-bot page`)
+          const rows = spec.parse(html)
+          if (rows.length === 0) {
+            throw new Error(`${spec.label} rendered no parseable results (layout change)`)
+          }
+          return { engineId, rows, lane: 'browser' }
+        } catch (error) {
+          // A blocked engine is the engine's answer, not a transport fault: falling back would
+          // only ask the same captcha endpoint again. Every other browser failure (host process
+          // cannot spawn the browser, DevTools port never opens, render timed out) is a
+          // transport fault, and the HTTP lane can still serve the query — the render-dependent
+          // engines answer their mobile HTML to a plain fetch often enough to be worth the try.
+          if (error instanceof BlockedError) throw error
+          const { status, text } = await fetchText(url, {
+            timeoutMs: current.timeoutMs,
+            signal,
+            userAgent: spec.mobile ? MOBILE_UA : DESKTOP_UA,
+          })
+          if (detectsBlock(text)) throw new BlockedError(`${spec.label} served an anti-bot page`)
+          if (status !== 200) {
+            throw new Error(
+              `${spec.label} needs a browser and the browser lane failed (${error.message}); ` +
+                `HTTP fallback answered HTTP ${status}`,
+            )
+          }
+          const rows = spec.parse(text)
+          if (rows.length === 0) {
+            throw new Error(
+              `${spec.label} needs a browser and the browser lane failed (${error.message}); ` +
+                `HTTP fallback returned no parseable results`,
+            )
+          }
+          return { engineId, rows, lane: 'http-fallback' }
         }
-        return { engineId, rows, lane: 'browser' }
       }
 
       const { status, text } = await fetchText(url, {
@@ -1798,6 +1909,7 @@ export {
   resolveBrowser,
   resolveEngineId,
   sanitizeHref,
+  sanitizedBrowserEnv,
   siteOf,
   stopBrowserPools,
   stripTags,
@@ -1805,5 +1917,6 @@ export {
   takeDiverse,
   unwrapBingUrl,
   unwrapShenmaUrl,
+  HOST_RUNTIME_ENV_KEYS,
 }
 export default { name, inject, Config, apply }
